@@ -260,6 +260,47 @@ def run_analysis(question: str) -> str:
     return answer.strip()
 
 
+def run_report(question: str) -> dict:
+    """
+    一键生成完整分析报告: SQL → 分析 → 图表 → Markdown 报告。
+
+    返回:
+        {"analysis": str, "charts": list, "report": str}
+    """
+    from src.agents.report_agent import generate_full_report
+
+    memory = get_memory()
+    memory.add_history(question, "")
+
+    # Step 1: SQL
+    result, sql = _sql_agent(question)
+    if result is None:
+        return {"analysis": "", "charts": [], "report": "⚠️ 无法生成 SQL。"}
+    if not result.success:
+        return {"analysis": "", "charts": [], "report": f"❌ SQL 执行失败: {result.error}"}
+    if result.row_count == 0:
+        return {"analysis": "", "charts": [], "report": "📭 没有返回数据。"}
+
+    memory.set("last_sql", sql)
+    memory.set("last_result", result)
+
+    print("  📊 正在分析...")
+    print("  📈 正在生成图表...")
+    print("  📝 正在撰写报告...")
+
+    # Step 2-4: 分析 + 图表 + 报告（一气呵成）
+    output = generate_full_report(
+        question=question,
+        query_result=result,
+        analysis_result="",  # 让 report_agent 内部调用 analysis_agent
+    )
+
+    memory.set("last_analysis", output.get("analysis", ""))
+    memory.add_history(question, output.get("report", "")[:200])
+
+    return output
+
+
 def _format_quick(result) -> str:
     """快速格式化 QueryResult。"""
     if result.row_count > 50:

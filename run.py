@@ -5,6 +5,7 @@ DataLens AI — 测试入口
     python run.py                              # 交互模式（Function Calling）
     python run.py "昨天的 PV 是多少"            # 单次问答
     python run.py --analyze "为什么下载量跌了"  # 分析模式（SQL→分析→结论）
+    python run.py --report "为什么下载量跌了"   # 报告模式（分析+图表+报告）
 """
 
 import sys
@@ -41,6 +42,23 @@ def main():
         question = " ".join(args[1:])
         answer = run_analysis(question)
         print(answer)
+
+    elif args[0] == "--report":
+        # 报告模式 → orchestrator 出完整报告（阶段五）
+        if len(args) < 2:
+            print("用法: python run.py --report \"为什么下载量下跌了\"")
+            return
+        from src.core.orchestrator import run_report
+        question = " ".join(args[1:])
+        output = run_report(question)
+
+        print()
+        print("=" * 60)
+        print(output.get("report", "报告生成失败"))
+        print()
+        charts = output.get("charts", [])
+        if charts:
+            print(f"📈 共生成 {len(charts)} 张图表（ECharts JSON）")
 
     else:
         # 单次问答 → sql_agent（轻量）
