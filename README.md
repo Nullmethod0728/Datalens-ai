@@ -26,6 +26,8 @@
 
 **输出**：`你好！我是数据分析助手，有什么想查的吗？😊`
 
+![界面截图](screenshots/datalens%20ai.png)
+
 ## 架构
 
 ```
@@ -180,18 +182,6 @@ datalens-ai/
 | 图表 | LLM → ECharts JSON → streamlit-echarts |
 | 前端 | Streamlit |
 | 安全 | 关键词黑名单 + 注入检测 |
-
-## 关键设计决策
-
-如果你在面试中被问到「这个项目你设计了什么」，这些是值得展开的点：
-
-| 决策 | 问题 | 方案 |
-|------|------|------|
-| 为什么 Supervisor 是代码不是 LLM | LLM 决策会幻觉、死循环、不可控 | `orchestrator.py` 写死状态机，LLM 只负责任务内部 |
-| 为什么 Function Calling 不等同于 Agent | FC 只解决「LLM 调工具」，不解决「多步协作」 | 在 FC 之上加了 Supervisor 编排层 |
-| 为什么 SQL 校验器不依赖 LLM 自查 | LLM 可能绕过自己说的规则 | 额外加一层关键词黑名单 + 注入检测 |
-| 为什么 demo 数据造了 2 年 | 同比分析需要跨年对比 | 730 天，36500 行，支持所有分析维度 |
-| 为什么 Chart Agent 生成 JSON 而不是图片 | JSON 可被前端灵活渲染，图片不能交互 | ECharts option JSON → streamlit-echarts 渲染 |
 
 ## License
 
