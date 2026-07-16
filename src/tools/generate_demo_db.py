@@ -27,8 +27,8 @@ APPS = [
 
 CITIES = ["北京", "上海", "广州", "深圳", "杭州"]
 DEVICES = ["iOS", "Android"]
-START_DATE = date(2026, 6, 16)
-DAYS = 30
+START_DATE = date(2024, 7, 16)
+DAYS = 730  # 两年，支持同比分析
 
 # ============================================================
 # 建表
@@ -68,7 +68,7 @@ for i in range(DAYS):
     d = START_DATE + timedelta(days=i)
     day_of_week = d.weekday()  # 0=Monday, 6=Sunday
     is_weekend = 1.3 if day_of_week >= 5 else 1.0  # 周末流量更高
-    trend = 1.0 + i * 0.005  # 微幅上升趋势
+    trend = 1.0 + i * 0.0003  # 微幅上升趋势（730天约涨22%）
 
     for app_name, category, pv_range, uv_range, dl_range, rev_range in APPS:
         for city in CITIES:
