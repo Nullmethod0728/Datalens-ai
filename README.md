@@ -2,40 +2,49 @@
 
 **Multi-Agent 智能数据分析系统** — 输入自然语言，自动查数据、做分析、画图表、写报告。
 
-```
-你: "为什么最近一周下载量暴跌"
-  → SQL Agent 查数据库
-  → Analysis Agent 算贡献度 + 异常检测
-  → Chart Agent 生成 ECharts 图表
-  → Report Agent 写 Markdown 报告
-  → 5 秒后，一份完整分析报告出现在浏览器里
-```
+[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![LLM](https://img.shields.io/badge/LLM-DeepSeek%20%7C%20OpenAI-orange)](#配置-api-key)
+
+## 效果展示
+
+**输入**：`为什么最近一周下载量暴跌，是哪个应用导致的`
+
+**输出**：
+
+> **核心发现**：最近一周下载量波动主要来自微信，贡献了 38.4% 的变化。微信 Z-score=1.54，为异常值。
+>
+> | 应用 | 下载量 | 贡献占比 | 异常检测 |
+> |------|--------|----------|----------|
+> | 微信 | 709 万 | **38.4%** | ⚠️ Z=1.54 |
+> | 抖音 | 453 万 | 24.5% | 正常 |
+> | 王者荣耀 | 275 万 | 14.9% | 正常 |
+>
+> **建议**：排查微信是否存在版本更新或异常刷量行为；对 Z-score > 1.5 的渠道建立告警。
+
+**输入**：`你好`
+
+**输出**：`你好！我是数据分析助手，有什么想查的吗？😊`
 
 ## 架构
 
 ```
-用户输入
+用户说 "为什么下载量跌了"
   │
   ▼
-┌─────────────────────────────────────────────────┐
-│  Supervisor（决策函数，不是 LLM）                  │
-│                                                  │
-│  def supervisor(state):                          │
-│      if 数据还没查 → SQL Agent                    │
-│      if 数据有但没分析 → Analysis Agent            │
-│      if 分析完了 → 输出                            │
-│                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │SQL Agent │→│Analysis   │→│Chart     │        │
-│  │查数据     │  │Agent 归因 │  │Agent 出图│        │
-│  └──────────┘  └──────────┘  └──────────┘       │
-│                      ↓                ↓           │
-│               Report Agent（报告）                │
-│                                                  │
-└─────────────────────────────────────────────────┘
+┌─ Orchestrator（Supervisor，纯代码状态机）──────────┐
+│                                                     │
+│  State: NEED_DATA → NEED_ANALYSIS → DONE            │
+│                                                     │
+│  Step 1: SQL Agent      → 查多维度数据               │
+│  Step 2: Analysis Agent  → Pandas 归因 + 异常检测    │
+│  Step 3: Chart Agent     → 生成 ECharts JSON        │
+│  Step 4: Report Agent    → 撰写 Markdown 报告       │
+│                                                     │
+└─────────────────────────────────────────────────────┘
   │
   ▼
-Streamlit Web（对话 + 图表渲染 + 报告展示）
+Streamlit Web — 对话界面 + 图表渲染 + 报告展示
 ```
 
 ## 快速开始
@@ -133,7 +142,7 @@ datalens-ai/
 │   ├── tools/
 │   │   ├── sql_executor.py     # SQLite 执行器
 │   │   ├── sql_validator.py    # SQL 安全校验（黑名单 + 注入检测）
-│   │   ├── pandas_analyzer.py  # Pandas 分析函數庫（贡献度/异常/趋势）
+│   │   ├── pandas_analyzer.py  # Pandas 分析函数库（贡献度/异常/趋势）
 │   │   └── generate_demo_db.py # Demo 数据生成器（2年，36500行）
 │   │
 │   └── web/
@@ -171,6 +180,18 @@ datalens-ai/
 | 图表 | LLM → ECharts JSON → streamlit-echarts |
 | 前端 | Streamlit |
 | 安全 | 关键词黑名单 + 注入检测 |
+
+## 关键设计决策
+
+如果你在面试中被问到「这个项目你设计了什么」，这些是值得展开的点：
+
+| 决策 | 问题 | 方案 |
+|------|------|------|
+| 为什么 Supervisor 是代码不是 LLM | LLM 决策会幻觉、死循环、不可控 | `orchestrator.py` 写死状态机，LLM 只负责任务内部 |
+| 为什么 Function Calling 不等同于 Agent | FC 只解决「LLM 调工具」，不解决「多步协作」 | 在 FC 之上加了 Supervisor 编排层 |
+| 为什么 SQL 校验器不依赖 LLM 自查 | LLM 可能绕过自己说的规则 | 额外加一层关键词黑名单 + 注入检测 |
+| 为什么 demo 数据造了 2 年 | 同比分析需要跨年对比 | 730 天，36500 行，支持所有分析维度 |
+| 为什么 Chart Agent 生成 JSON 而不是图片 | JSON 可被前端灵活渲染，图片不能交互 | ECharts option JSON → streamlit-echarts 渲染 |
 
 ## License
 
