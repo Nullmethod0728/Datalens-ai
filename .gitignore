@@ -18,3 +18,4 @@ Thumbs.db
 # Project
 *.sqlite
 *.db
+!data/demo_app_store.sqlite
