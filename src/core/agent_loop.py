@@ -93,12 +93,98 @@ def _build_system_prompt() -> str:
 
 
 # ============================================================
-# 核心循环
+# 单轮 Function Calling（给 Web 端用）
 # ============================================================
-MAX_TOOL_ROUNDS = 5          # 每轮最多调工具次数
-MAX_SQL_RETRIES = 3          # SQL 执行失败最多重试次数
+MAX_TOOL_ROUNDS = 5
+MAX_SQL_RETRIES = 3
 
 
+def chat_once(question: str) -> str:
+    """
+    单轮 Function Calling 对话。
+    用户问一句 → LLM 决定要不要调工具 → 返回最终回答。
+
+    和 sql_agent.ask() 的区别:
+      sql_agent 强制走 SQL（说"你好"也硬查）
+      chat_once 让 LLM 自己判断要不要查数据库（说"你好"直接回）
+    """
+    messages = [
+        {"role": "system", "content": _build_system_prompt()},
+        {"role": "user", "content": question},
+    ]
+
+    sql_error_count = 0
+    final_answer = ""
+
+    for _ in range(MAX_TOOL_ROUNDS):
+        response = _get_client().chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+        )
+        msg = response.choices[0].message
+
+        if msg.tool_calls:
+            # 添加 assistant 消息
+            messages.append({
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            })
+
+            for tc in msg.tool_calls:
+                tool_name = tc.function.name
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
+
+                result_str = execute_tool(tool_name, args)
+
+                is_sql_error = (
+                    tool_name == "execute_sql"
+                    and ("SQL 执行失败" in result_str
+                         or "禁止使用" in result_str
+                         or "只允许 SELECT" in result_str
+                         or "禁止执行多条" in result_str)
+                )
+                if is_sql_error:
+                    sql_error_count += 1
+                    if sql_error_count >= MAX_SQL_RETRIES:
+                        result_str += (
+                            f"\n\n⚠️ 这已经是第 {sql_error_count} 次 SQL 错误了。"
+                            "请直接告诉用户「这个问题我暂时查不了」。"
+                        )
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_str,
+                })
+        else:
+            final_answer = msg.content or ""
+            break
+    else:
+        final_answer = "⚠️ 工具调用次数过多，请换个方式提问。"
+
+    return final_answer
+
+
+# ============================================================
+# 交互式循环（终端用）
+# ============================================================
 def run_conversation():
     """启动交互式对话。"""
     messages = [{"role": "system", "content": _build_system_prompt()}]

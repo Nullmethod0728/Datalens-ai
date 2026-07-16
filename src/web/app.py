@@ -61,12 +61,12 @@ def load_agents():
     """缓存后端模块，避免每次重载。"""
     from src.core.config import validate
     validate()
-    from src.agents.sql_agent import ask as sql_ask
+    from src.core.agent_loop import chat_once
     from src.core.orchestrator import run_analysis, run_report
-    return sql_ask, run_analysis, run_report
+    return chat_once, run_analysis, run_report
 
 
-sql_ask, run_analysis, run_report = load_agents()
+chat_once, run_analysis, run_report = load_agents()
 
 
 # ---- 聊天历史 ----
@@ -98,9 +98,9 @@ def handle_question(question: str):
         return {"type": "analysis", "content": result}
 
     else:
-        # 普通问答
-        with st.spinner("查询中..."):
-            result = sql_ask(question)
+        # 普通问答 → Function Calling（说"你好"也不会硬查库）
+        with st.spinner("思考中..."):
+            result = chat_once(question)
         return {"type": "text", "content": result}
 
 
