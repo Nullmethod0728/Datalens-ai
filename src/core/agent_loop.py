@@ -52,6 +52,9 @@ def _build_system_prompt() -> str:
     """
     构建 system prompt: 告诉 LLM 它是谁、有什么工具、数据库长什么样。
     """
+    from datetime import date
+    today = date.today().isoformat()
+
     tables = list_tables(DATABASE_PATH)
     schema_parts = []
     for t in tables:
@@ -62,6 +65,8 @@ def _build_system_prompt() -> str:
 
     return f"""\
 你是一个智能数据分析助手，专门帮用户查询和分析应用商店数据。
+
+今天是 {today}。用户说的「昨天」「上周」「本月」等时间词请基于这个日期计算。
 
 ## 数据库结构
 {schema_text}
