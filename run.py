@@ -7,6 +7,10 @@ DataLens AI — 阶段一测试入口
 """
 
 import sys
+import os
+
+# Windows 终端 GBK → UTF-8，否则中文乱码
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 # 确保项目根目录在 Python Path 中
 from pathlib import Path
