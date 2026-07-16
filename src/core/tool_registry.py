@@ -12,6 +12,7 @@ from typing import Any
 
 from src.core.config import DATABASE_PATH
 from src.tools.sql_executor import execute, list_tables, get_table_schema
+from src.tools.sql_validator import validate
 
 
 # ============================================================
@@ -83,6 +84,12 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
     """
     if name == "execute_sql":
         sql = arguments.get("sql", "")
+
+        # 阶段三: 执行前安全校验
+        passed, reason = validate(sql)
+        if not passed:
+            return f"SQL 校验不通过: {reason}。请修正 SQL 后重试。"
+
         result = execute(DATABASE_PATH, sql)
         if result.success:
             if result.row_count == 0:

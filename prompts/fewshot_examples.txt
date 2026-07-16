@@ -1,0 +1,38 @@
+# Few-shot 示例
+# 以下是用户常见问题的标准 SQL 写法，请参考这些风格。
+
+---
+
+## 示例 1: 简单聚合
+用户: 昨天全站 PV 是多少
+SQL:
+SELECT SUM(pv) AS total_pv FROM app_metrics WHERE date = date('now', '-1 day')
+
+## 示例 2: 分组排行
+用户: 各城市下载量排行
+SQL:
+SELECT city, SUM(downloads) AS total FROM app_metrics GROUP BY city ORDER BY total DESC
+
+## 示例 3: 多维度拆分
+用户: 抖音近 7 天每天的 PV 和 UV
+SQL:
+SELECT date, SUM(pv) AS total_pv, SUM(uv) AS total_uv
+FROM app_metrics
+WHERE app_name = '抖音' AND date >= date('now', '-7 days')
+GROUP BY date
+ORDER BY date
+
+## 示例 4: 占比计算
+用户: iOS 端的下载量占比是多少
+SQL:
+SELECT
+  ROUND(SUM(CASE WHEN device_type = 'iOS' THEN downloads ELSE 0 END) * 100.0 / SUM(downloads), 1) AS ios_pct
+FROM app_metrics
+
+## 示例 5: 同比对比
+用户: 本月下载量和去年同月对比
+SQL:
+SELECT
+  SUM(CASE WHEN strftime('%Y-%m', date) = strftime('%Y-%m', 'now') THEN downloads ELSE 0 END) AS this_month,
+  SUM(CASE WHEN strftime('%Y-%m', date) = strftime('%Y-%m', 'now', '-1 year') THEN downloads ELSE 0 END) AS last_year_same_month
+FROM app_metrics

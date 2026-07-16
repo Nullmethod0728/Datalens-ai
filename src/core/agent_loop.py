@@ -1,23 +1,20 @@
 """
-Agent 核心循环 — Function Calling 模式
-----------------------------------------
-阶段二的核心：LLM 自己决定要不要查数据库、什么时候查、查什么。
+Agent 核心循环 — Function Calling 模式（阶段三增强）
+----------------------------------------------------
+阶段二: LLM 自己决定要不要查数据库
+阶段三: + Schema 精简 + Few-shot 示例 + SQL 安全校验 + 错误重试
 
 流程:
   while True:
       用户输入 → 追加到消息列表
       while True:
           调 LLM（带工具定义）
-          if LLM 返回 tool_call → 执行工具 → 结果追加回消息 → 继续循环
+          if LLM 返回 tool_call → 执行工具（含安全校验） → 结果追加回消息 → 继续
           if LLM 返回普通文本 → 输出 → 结束本轮
-
-对比阶段一:
-  阶段一: 用户问题 → 强制走 SQL（说"你好"也硬查）
-  阶段二: 用户说"你好" → LLM 判断无需工具 → 直接回复
-         用户问数据 → LLM 返回 tool_call → Python 执行 → 喂回结果
 """
 
 import json
+from pathlib import Path
 from openai import OpenAI
 
 from src.core.config import (
@@ -26,10 +23,8 @@ from src.core.config import (
     MODEL_NAME,
     TEMPERATURE,
     MAX_TOKENS,
-    DATABASE_PATH,
 )
 from src.core.tool_registry import TOOL_DEFINITIONS, execute_tool
-from src.tools.sql_executor import list_tables, get_table_schema
 
 
 # ============================================================
@@ -46,64 +41,71 @@ def _get_client() -> OpenAI:
 
 
 # ============================================================
+# 加载 prompt 资源文件
+# ============================================================
+_PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
+
+
+def _load_prompt_file(filename: str) -> str:
+    """从 prompts/ 目录加载文本文件，文件不存在则返回空字符串。"""
+    filepath = _PROMPTS_DIR / filename
+    if filepath.exists():
+        return filepath.read_text(encoding="utf-8")
+    return ""
+
+
+# ============================================================
 # System Prompt
 # ============================================================
 def _build_system_prompt() -> str:
-    """
-    构建 system prompt: 告诉 LLM 它是谁、有什么工具、数据库长什么样。
-    """
+    """构建 system prompt: LLM 身份 + 数据库结构 + Few-shot + 行为规则。"""
     from datetime import date
     today = date.today().isoformat()
 
-    tables = list_tables(DATABASE_PATH)
-    schema_parts = []
-    for t in tables:
-        schema_sql = get_table_schema(DATABASE_PATH, t)
-        schema_parts.append(f"### {t}\n```sql\n{schema_sql}\n```")
-
-    schema_text = "\n\n".join(schema_parts) if schema_parts else "（暂无表）"
+    schema_prompt = _load_prompt_file("schema_prompt.txt")
+    fewshot_prompt = _load_prompt_file("fewshot_examples.txt")
 
     return f"""\
 你是一个智能数据分析助手，专门帮用户查询和分析应用商店数据。
 
-今天是 {today}。用户说的「昨天」「上周」「本月」等时间词请基于这个日期计算。
+今天是 {today}。用户说的「昨天」「上周」「本月」「去年」等时间词请基于这个日期计算。
 
 ## 数据库结构
-{schema_text}
+{schema_prompt}
 
-## 你的能力
+## 查询示例（请模仿以下 SQL 风格）
+{fewshot_prompt}
+
+## 你的工具
 你有以下工具可用（无需向用户确认，直接调用）：
-- `execute_sql`: 执行 SQL 查询，获取数据
+- `execute_sql`: 执行 SQL 查询，获取数据。只支持 SELECT。
 - `get_table_schema`: 查看某张表的字段结构
 - `list_tables`: 列出所有表名
 
 ## 行为规则
-1. **需要查数据时** → 直接调用工具，拿到结果后翻译成人话
+1. **需要查数据时** → 直接调用 execute_sql，拿到结果后翻译成人话
 2. **不需要查数据时** → 直接文字回复，不调用任何工具
-   - 用户说"你好""谢谢""你是什么模型"之类的话 → 直接回复
-   - 用户的问题和数据库完全无关 → 直接回复
-3. 调用 execute_sql 时，只生成 SELECT 语句，禁止 INSERT/UPDATE/DELETE/DROP/ALTER
+3. 只生成 SELECT 语句，禁止 INSERT/UPDATE/DELETE/DROP/ALTER
 4. 日期函数使用 SQLite 语法（date('now')、strftime 等）
-5. 用户可能用模糊时间词（"昨天""上周""最近7天"），你需要转换为具体 SQL 条件
-6. 拿到数据后，用中文简洁地告诉用户结论，不需要解释你用了什么 SQL
+5. 如果 SQL 执行报错，仔细看错误信息，修正后重试（最多重试 3 次）
+6. 拿到数据后，用中文简洁地告诉用户结论
 """
 
 
 # ============================================================
 # 核心循环
 # ============================================================
-MAX_TOOL_ROUNDS = 5  # 每轮对话最多调用工具次数，防止死循环
+MAX_TOOL_ROUNDS = 5          # 每轮最多调工具次数
+MAX_SQL_RETRIES = 3          # SQL 执行失败最多重试次数
 
 
 def run_conversation():
-    """
-    启动交互式对话（在终端里跑）。
-    """
+    """启动交互式对话。"""
     messages = [{"role": "system", "content": _build_system_prompt()}]
 
     print("=" * 50)
-    print("  DataLens AI — Agent 模式（阶段二）")
-    print("  LLM 自主判断：闲聊直接回 / 数据问题自动查库")
+    print("  DataLens AI — Agent 模式（阶段三）")
+    print("  SQL 安全校验 + Few-shot + 错误重试")
     print("  输入 exit 退出")
     print("=" * 50)
 
@@ -118,6 +120,8 @@ def run_conversation():
 
             messages.append({"role": "user", "content": user_input})
 
+            sql_error_count = 0  # 本轮的 SQL 错误计数
+
             # ---- 内层循环：工具调用 ----
             for _ in range(MAX_TOOL_ROUNDS):
                 response = _get_client().chat.completions.create(
@@ -131,7 +135,6 @@ def run_conversation():
 
                 # 情况 A: LLM 要调工具
                 if msg.tool_calls:
-                    # 先把 assistant 消息（含 tool_calls）加入历史
                     messages.append({
                         "role": "assistant",
                         "content": msg.content or "",
@@ -148,7 +151,6 @@ def run_conversation():
                         ],
                     })
 
-                    had_error = False
                     for tc in msg.tool_calls:
                         tool_name = tc.function.name
                         try:
@@ -160,19 +162,27 @@ def run_conversation():
 
                         result_str = execute_tool(tool_name, args)
 
-                        if result_str.startswith("SQL 执行失败") or result_str.startswith("未知工具"):
-                            had_error = True
+                        # 阶段三: 统计 SQL 错误，超限则终止
+                        is_sql_error = (
+                            tool_name == "execute_sql"
+                            and ("SQL 执行失败" in result_str
+                                 or "禁止使用" in result_str
+                                 or "只允许 SELECT" in result_str
+                                 or "禁止执行多条" in result_str)
+                        )
+                        if is_sql_error:
+                            sql_error_count += 1
+                            if sql_error_count >= MAX_SQL_RETRIES:
+                                result_str += (
+                                    f"\n\n⚠️ 这已经是第 {sql_error_count} 次 SQL 错误了。"
+                                    "请不要再重试，直接告诉用户「这个问题我暂时查不了」。"
+                                )
 
-                        # 工具结果追加到消息列表
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc.id,
                             "content": result_str,
                         })
-
-                    # 如果工具执行报错，让 LLM 修正后重试；否则就继续
-                    if not had_error:
-                        continue
 
                 # 情况 B: LLM 直接回复文字
                 else:
@@ -181,7 +191,6 @@ def run_conversation():
                     break
 
             else:
-                # for 循环没 break → 工具调用轮次耗尽
                 print("\n⚠️ 工具调用次数过多，已终止本轮。请换个方式提问。")
     except KeyboardInterrupt:
         print("\n再见!")

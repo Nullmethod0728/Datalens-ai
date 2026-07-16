@@ -1,0 +1,64 @@
+# 应用商店数据库结构
+
+## 表关系
+- `app_metrics` 是主表（每日指标明细），`apps` 是维表（应用信息）
+- 两表通过 `app_name` 关联
+- `app_metrics` 通过 `category` 字段冗余了分类，大部分查询不需要 JOIN
+
+---
+
+## 表: app_metrics（应用每日指标）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER | 自增主键 |
+| date | TEXT | 日期，格式 YYYY-MM-DD |
+| app_name | TEXT | 应用名称（抖音、王者荣耀、微信、滴滴出行、QQ音乐） |
+| category | TEXT | 分类（视频、游戏、社交、工具、音乐） |
+| city | TEXT | 城市（北京、上海、广州、深圳、杭州） |
+| device_type | TEXT | 设备类型（iOS、Android） |
+| pv | INTEGER | 页面浏览量 |
+| uv | INTEGER | 独立访客数 |
+| downloads | INTEGER | 下载量 |
+| revenue | REAL | 收入（元） |
+| new_users | INTEGER | 新增用户数 |
+| active_users | INTEGER | 活跃用户数 |
+
+## 表: apps（应用信息）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| app_name | TEXT | 应用名称（主键） |
+| category | TEXT | 分类 |
+
+---
+
+## 常用 SQL 技巧
+
+### 时间函数
+- `date('now')` — 今天
+- `date('now', '-1 day')` — 昨天
+- `date('now', '-7 days')` — 7天前
+- `strftime('%Y-%m', date)` — 提取年月
+- `strftime('%Y', date)` — 提取年份
+- `strftime('%w', date)` — 星期几（0=周日）
+
+### 聚合示例
+- `SUM(pv)` / `SUM(uv)` / `SUM(downloads)` / `SUM(revenue)`
+- `COUNT(DISTINCT app_name)` — 去重计数
+- `GROUP BY city` / `GROUP BY category` / `GROUP BY date`
+
+### 日期过滤
+- 昨天: `WHERE date = date('now', '-1 day')`
+- 最近7天: `WHERE date >= date('now', '-7 days')`
+- 本月: `WHERE strftime('%Y-%m', date) = strftime('%Y-%m', 'now')`
+- 去年同期: `WHERE date BETWEEN date('now', '-1 year', '-3 days') AND date('now', '-1 year', '+3 days')`
+
+### 同比计算
+```sql
+-- 今年 vs 去年同期的环比
+SELECT
+  SUM(CASE WHEN date >= '2026-07-01' THEN downloads ELSE 0 END) AS this_period,
+  SUM(CASE WHEN date >= '2025-07-01' AND date < '2025-08-01' THEN downloads ELSE 0 END) AS last_year
+FROM app_metrics
+```
